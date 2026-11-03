@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -31,6 +31,11 @@ class SessionStatus(StrEnum):
 class AttendanceStatus(StrEnum):
     PRESENT = "present"
     LATE = "late"
+    EXCUSED = "excused"
+
+
+# Statuses that mean the student was in class.
+ATTENDED_STATUSES = (AttendanceStatus.PRESENT, AttendanceStatus.LATE)
 
 
 class User(Base):
@@ -59,6 +64,9 @@ class Enrollment(Base):
     section_id: Mapped[str] = mapped_column(ForeignKey("course_sections.id"), index=True)
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(20), default="active")
+    # Sessions outside [enrolled_at, ended_at) don't count for this student. Null enrolled_at means "from the start".
+    enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=now_utc)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AttendanceSession(Base):
@@ -75,14 +83,12 @@ class AttendanceSession(Base):
     location_latitude: Mapped[float | None] = mapped_column(Float)
     location_longitude: Mapped[float | None] = mapped_column(Float)
     allowed_radius_meters: Mapped[int | None] = mapped_column(Integer)
+    late_after_minutes: Mapped[int | None] = mapped_column(Integer)
 
 
 class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
-    __table_args__ = (
-        UniqueConstraint("attendance_session_id", "student_id"),
-        Index("ux_attendance_records_qr_nonce", "qr_nonce", unique=True),
-    )
+    __table_args__ = (UniqueConstraint("attendance_session_id", "student_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     attendance_session_id: Mapped[str] = mapped_column(ForeignKey("attendance_sessions.id"), index=True)
     student_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
@@ -125,6 +131,9 @@ class AbsenceRequest(Base):
     attendance_session_id: Mapped[str | None] = mapped_column(ForeignKey("attendance_sessions.id"))
     reason: Mapped[str] = mapped_column(Text)
     attachment_url: Mapped[str | None] = mapped_column(Text)
+    attachment_path: Mapped[str | None] = mapped_column(String(64))
+    attachment_name: Mapped[str | None] = mapped_column(String(255))
+    attachment_type: Mapped[str | None] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -137,3 +146,12 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    succeeded: Mapped[bool] = mapped_column(Boolean)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

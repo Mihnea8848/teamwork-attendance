@@ -13,6 +13,17 @@ class Settings(BaseSettings):
     attempt_limit_per_student: int = 5
     attempt_limit_per_ip: int = 30
     attempt_limit_per_device: int = 30
+    login_window_minutes: int = 15
+    # Failed sign-ins per email and client IP. Students behind one NAT never share this count.
+    login_attempt_limit: int = 10
+    # Failed sign-ins per email from any IP. A last resort against distributed guessing, so it is much higher.
+    login_attempt_limit_per_email: int = 50
+    # Professors register with this shared code (given out by the department). Empty disables professor sign-up.
+    professor_signup_code: str = ""
+    upload_dir: str = "./uploads"
+    max_upload_bytes: int = 5 * 1024 * 1024
+    # "production" refuses to start with the built-in development secrets.
+    app_env: str = "development"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
