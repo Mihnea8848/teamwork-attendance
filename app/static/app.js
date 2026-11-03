@@ -1286,6 +1286,7 @@ function sessionRow(section, session) {
                 drawRoster(rows.map((item) => (item.student.id === row.student.id ? updated : item)));
               } catch (error) {
                 toast(error.message);
+                select.value = row.status;
                 select.disabled = false;
               }
             });

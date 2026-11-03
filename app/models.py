@@ -152,5 +152,6 @@ class LoginAttempt(Base):
     __tablename__ = "login_attempts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     email: Mapped[str] = mapped_column(String(320), index=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     succeeded: Mapped[bool] = mapped_column(Boolean)
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

@@ -67,6 +67,26 @@ def test_failed_logins_for_one_account_do_not_block_another(client, student, oth
     assert ok.status_code == 200
 
 
+def test_failed_logins_from_one_ip_do_not_lock_out_the_real_user_on_another(client, student, monkeypatch):
+    for _ in range(get_settings().login_attempt_limit):
+        monkeypatch.setattr("app.main.client_ip", lambda request: "203.0.113.5")
+        client.post("/api/v1/auth/token", data={"username": "student@example.com", "password": "wrong-password"})
+    monkeypatch.setattr("app.main.client_ip", lambda request: "198.51.100.7")
+    assert client.post("/api/v1/auth/token", data={"username": "student@example.com", "password": PASSWORD}).status_code == 200
+    monkeypatch.setattr("app.main.client_ip", lambda request: "203.0.113.5")
+    assert client.post("/api/v1/auth/token", data={"username": "student@example.com", "password": PASSWORD}).status_code == 429
+
+
+def test_distributed_guessing_hits_the_per_email_limit(client, student, monkeypatch):
+    monkeypatch.setattr(get_settings(), "login_attempt_limit_per_email", 3)
+    for index in range(3):
+        monkeypatch.setattr("app.main.client_ip", lambda request, index=index: f"192.0.2.{index}")
+        response = client.post("/api/v1/auth/token", data={"username": "student@example.com", "password": "wrong-password"})
+        assert response.status_code == 401
+    monkeypatch.setattr("app.main.client_ip", lambda request: "192.0.2.99")
+    assert client.post("/api/v1/auth/token", data={"username": "student@example.com", "password": PASSWORD}).status_code == 429
+
+
 def test_production_refuses_development_secrets(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "app_env", "production")

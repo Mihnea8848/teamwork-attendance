@@ -27,6 +27,10 @@ def verify_password(value: str, hashed: str) -> bool:
     return password_hash.verify(value, hashed)
 
 
+# Checked against when the email has no account, so unknown and known emails take the same time to answer.
+DUMMY_PASSWORD_HASH = password_hash.hash(secrets.token_urlsafe(32))
+
+
 # No 0/O, 1/I/L, or 5/S, so a code read off a projector can't be mistyped.
 CODE_ALPHABET = "ABCDEFGHJKMNPQRTUVWXYZ2346789"
 CODE_LENGTH = 10

@@ -65,6 +65,7 @@ from .schemas import (
     UserResponse,
 )
 from .security import (
+    DUMMY_PASSWORD_HASH,
     SESSION_COOKIE,
     code_matches,
     create_token,
@@ -260,28 +261,39 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
         role=payload.role,
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent request with the same email passed the check above first.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Email already registered")
     db.refresh(user)
     return user
 
 
-def authenticate(db: Session, email: str, password: str) -> User:
-    """Check credentials, refusing further tries once an email has too many recent failures."""
+def recent_login_failures(db: Session, email: str, ip: str | None = None) -> int:
+    window_start = datetime.now(timezone.utc) - timedelta(minutes=get_settings().login_window_minutes)
+    condition = [LoginAttempt.email == email, LoginAttempt.succeeded.is_(False), LoginAttempt.attempted_at >= window_start]
+    if ip is not None:
+        condition.append(LoginAttempt.ip_address == ip)
+    return db.scalar(select(func.count(LoginAttempt.id)).where(*condition))
+
+
+def authenticate(db: Session, email: str, password: str, ip: str) -> User:
+    """Check credentials, refusing tries from an IP once it has too many recent failures for that email."""
     settings = get_settings()
     email = email.lower()
-    window_start = datetime.now(timezone.utc) - timedelta(minutes=settings.login_window_minutes)
-    failures = db.scalar(
-        select(func.count(LoginAttempt.id)).where(
-            LoginAttempt.email == email,
-            LoginAttempt.succeeded.is_(False),
-            LoginAttempt.attempted_at >= window_start,
-        )
-    )
-    if failures >= settings.login_attempt_limit:
+    if recent_login_failures(db, email, ip) >= settings.login_attempt_limit:
+        raise HTTPException(status_code=429, detail="Too many failed sign-in attempts. Try again later.")
+    if recent_login_failures(db, email) >= settings.login_attempt_limit_per_email:
         raise HTTPException(status_code=429, detail="Too many failed sign-in attempts. Try again later.")
     user = db.scalar(select(User).where(User.email == email))
-    ok = user is not None and user.is_active and verify_password(password, user.password_hash)
-    db.add(LoginAttempt(email=email, succeeded=ok))
+    if user is None:
+        verify_password(password, DUMMY_PASSWORD_HASH)
+        ok = False
+    else:
+        ok = user.is_active and verify_password(password, user.password_hash)
+    db.add(LoginAttempt(email=email, ip_address=ip, succeeded=ok))
     db.commit()
     if not ok:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
@@ -289,8 +301,12 @@ def authenticate(db: Session, email: str, password: str) -> User:
 
 
 @app.post("/api/v1/auth/token", response_model=TokenResponse, tags=["auth"])
-def token(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> TokenResponse:
-    return TokenResponse(access_token=create_token(authenticate(db, form.username, form.password)))
+def token(
+    request: Request,
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    return TokenResponse(access_token=create_token(authenticate(db, form.username, form.password, client_ip(request))))
 
 
 @app.post("/api/v1/auth/login", response_model=UserResponse, tags=["auth"])
@@ -301,7 +317,7 @@ def browser_login(
     db: Session = Depends(get_db),
 ) -> User:
     """Sign in from the web UI: the token is stored in an HTTP-only cookie rather than returned."""
-    user = authenticate(db, form.username, form.password)
+    user = authenticate(db, form.username, form.password, client_ip(request))
     response.set_cookie(
         SESSION_COOKIE,
         create_token(user),

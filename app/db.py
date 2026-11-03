@@ -53,6 +53,9 @@ def ensure_additive_schema() -> None:
             "ip_address": "VARCHAR(45)",
             "device_id": "VARCHAR(128)",
         },
+        "login_attempts": {
+            "ip_address": "VARCHAR(45)",
+        },
     }
     inspector = inspect(engine)
     with engine.begin() as connection:

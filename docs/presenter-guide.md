@@ -125,8 +125,10 @@ least **12 characters** (`UserCreate` in `app/schemas.py`).
   clients. `POST /api/v1/auth/login` (used by the web UI) puts it in an
   HTTP-only, `SameSite=Strict` cookie instead, and `POST /api/v1/auth/logout`
   clears it. Both take form fields `username` (email) and `password`.
-- **Brute-force protection:** after **10** failed sign-ins for one email within
-  **15** minutes, further attempts get `429` (`login_attempts` table).
+- **Brute-force protection:** after **10** failed sign-ins for one email from one
+  IP within **15** minutes, further attempts from that IP get `429`. After **50**
+  failed sign-ins for one email from any IP, all attempts for that email get `429`
+  (`login_attempts` table).
 - **Professor accounts:** registering as a professor requires the
   `PROFESSOR_SIGNUP_CODE` the department hands out. Students register freely.
 - **Not implemented:** refresh tokens and server-side token revocation.
